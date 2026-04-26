@@ -1,0 +1,169 @@
+================================================================================
+  EXPERIMENT LOG — Assignment 3: Experimentation and Expansion
+  AdaptRecDCL: GradNorm-based Adaptive Loss Weighting for Recommendation
+================================================================================
+
+Authors      : Yahya Abdul Hakeem (23I-2627), Mustafa Kashif (23I-2583),
+               Ishmal Faheem (23I-5032)
+Course       : Deep Learning — FAST-NUCES Islamabad
+Instructor   : Mr. Ubaid Ul Rehman
+Script       : Assignment3_AdaptRecDCL_FIXED.ipynb
+Platform     : Google Colaboratory — NVIDIA Tesla T4 (15.6 GB VRAM)
+Framework    : PyTorch 2.0+ (CUDA)
+
+================================================================================
+  MODELS
+================================================================================
+
+1. MF (Matrix Factorization)
+   Loss     : BPR + L2 regularisation
+   Params   : User/item embeddings only
+
+2. LightGCN
+   Loss     : BPR + L2 regularisation
+   Encoder  : 3-layer graph propagation + mean pooling
+   Ref      : He et al., SIGIR 2020
+
+3. RecDCL (Assignment 2 baseline)
+   Loss     : BPR + λ_BCL×BCL + λ_FCL×FCL + L2
+   λ_BCL    : 0.05 (fixed)
+   λ_FCL    : 0.05 (fixed)
+   Ref      : Zhang et al., WWW 2024
+
+4. AdaptRecDCL (Proposed Method)
+   Loss     : BPR + λ_BCL(t)×BCL + λ_FCL(t)×FCL + L2
+   λ values : Learnable via GradNorm (Chen et al., ICML 2018)
+   Init     : λ_BCL = λ_FCL = 0.05 (same starting point as RecDCL)
+   Adapt LR : 0.01 (separate optimiser for λ parameters)
+   GradNorm : α=1.5, updated every 5 training steps
+
+================================================================================
+  HYPERPARAMETERS
+================================================================================
+
+Shared across all models and datasets:
+  embedding_size  : 64
+  gnn_layers      : 3
+  batch_size      : 2048
+  l2_reg          : 1e-4
+  bcl_temperature : 0.2
+  topk            : 20
+  seed            : 2024
+  evaluation      : Recall@20, NDCG@20 (full ranking, train items masked)
+
+Dataset-specific:
+  ┌──────────────────┬──────────────┬──────────────┐
+  │ Parameter        │ Gowalla      │ Amazon Beauty│
+  ├──────────────────┼──────────────┼──────────────┤
+  │ max_epochs       │ 200          │ 300          │
+  │ patience         │ 40           │ 40           │
+  │ eval_every       │ 5            │ 5            │
+  │ warmup           │ 10           │ 10           │
+  │ lr (MF)          │ 5e-3         │ 1e-3         │
+  │ lr (LightGCN)    │ 1e-3         │ 1e-3         │
+  │ lr (RecDCL)      │ 3e-3         │ 1e-3         │
+  │ lr (AdaptRecDCL) │ 3e-3         │ 1e-3         │
+  │ n_users          │ 3,000 (sub)  │ full         │
+  └──────────────────┴──────────────┴──────────────┘
+
+================================================================================
+  DATASET 1: GOWALLA (subset)
+================================================================================
+
+Source    : SNAP loc-gowalla_totalCheckins.txt.gz
+Filter    : 10-core (users and items with ≥10 interactions, iterated to stable)
+Subset    : 3,000 users randomly sampled after filtering
+Split     : 80% train / 20% test (per user)
+
+  Users   : 3,000
+  Items   : 33,215
+  Train   : 79,482 interactions
+  Density : 0.0798%
+
+Training Results:
+  ┌──────────────┬────────────┬──────────┬─────────┬──────────────┐
+  │ Model        │ Recall@20  │ NDCG@20  │ Best Ep │ vs MF        │
+  ├──────────────┼────────────┼──────────┼─────────┼──────────────┤
+  │ MF           │ 0.0662     │ 0.0579   │ 200     │ baseline     │
+  │ LightGCN     │ 0.0962     │ 0.0779   │ 35      │ +45.3%       │
+  │ RecDCL       │ 0.0537     │ 0.0355   │ 165     │ -18.9%       │
+  │ AdaptRecDCL  │ 0.0525     │ 0.0351   │ 200     │ -20.7%       │
+  └──────────────┴────────────┴──────────┴─────────┴──────────────┘
+
+AdaptRecDCL final λ values (Gowalla):
+  λ_BCL : 0.04048  (started at 0.05, reduced by 19%)
+  λ_FCL : 0.04979  (started at 0.05, essentially unchanged)
+
+================================================================================
+  DATASET 2: AMAZON BEAUTY
+================================================================================
+
+Source    : McAuley et al. Amazon product ratings (5-core pre-filtered)
+Filter    : 10-core (applied on top of 5-core, further cleans dataset)
+Split     : 80% train / 20% test (per user)
+
+  Users   : ~22,000
+  Items   : ~12,000
+  Density : ~0.05%
+
+Training Results:
+  ┌──────────────┬────────────┬──────────┬─────────┬──────────────┐
+  │ Model        │ Recall@20  │ NDCG@20  │ Best Ep │ vs MF        │
+  ├──────────────┼────────────┼──────────┼─────────┼──────────────┤
+  │ MF           │ 0.2328     │ 0.1637   │ 300     │ baseline     │
+  │ LightGCN     │ 0.2334     │ 0.1636   │ 60      │ +0.3%        │
+  │ RecDCL       │ 0.1929     │ 0.1417   │ 300     │ -17.1%       │
+  │ AdaptRecDCL  │ 0.1855     │ 0.1334   │ 285     │ -20.3%       │
+  └──────────────┴────────────┴──────────┴─────────┴──────────────┘
+
+AdaptRecDCL final λ values (Amazon Beauty):
+  λ_BCL : 0.04714  (started at 0.05, reduced by 5.7%)
+  λ_FCL : 0.04979  (started at 0.05, essentially unchanged)
+
+================================================================================
+  CROSS-DATASET SUMMARY
+================================================================================
+
+  ┌──────────────┬──────────────────────┬──────────────────────┐
+  │ Model        │ Gowalla              │ Amazon Beauty        │
+  │              │ R@20    │ N@20       │ R@20    │ N@20       │
+  ├──────────────┼─────────┼────────────┼─────────┼────────────┤
+  │ MF           │ 0.0662  │ 0.0579     │ 0.2328  │ 0.1637     │
+  │ LightGCN     │ 0.0962  │ 0.0779     │ 0.2334  │ 0.1636     │
+  │ RecDCL       │ 0.0537  │ 0.0355     │ 0.1929  │ 0.1417     │
+  │ AdaptRecDCL  │ 0.0525  │ 0.0351     │ 0.1855  │ 0.1334     │
+  └──────────────┴─────────┴────────────┴─────────┴────────────┘
+
+================================================================================
+  ANALYSIS OF RESULTS
+================================================================================
+
+1. LightGCN performs best on Gowalla (0.0962 vs 0.0662 for MF, +45.3%)
+   On Amazon Beauty, LightGCN and MF are essentially tied (0.2334 vs 0.2328).
+   This confirms that graph structure helps more on sparser data.
+
+2. RecDCL underperforms MF and LightGCN on both datasets.
+   On Gowalla: RecDCL = 0.0537 vs MF = 0.0662 (-18.9%)
+   On Beauty:  RecDCL = 0.1929 vs MF = 0.2328 (-17.1%)
+   This is consistent with the sensitivity issue identified in Assignment 2 —
+   the fixed λ=0.05 causes the contrastive losses to misalign with BPR on
+   these specific dataset/subset configurations.
+
+3. AdaptRecDCL performs comparably to RecDCL on both datasets.
+   λ_BCL reduces slightly (~5-19% drop from 0.05) while λ_FCL remains stable.
+   The GradNorm signal is too weak at these λ scales to drive significant
+   rebalancing — the gradient norms of all three tasks are already close in
+   magnitude when λ=0.05, so GradNorm makes only minor corrections.
+
+4. The lambda evolution plots confirm the GradNorm mechanism is functioning
+   correctly (λ_BCL decreases because BCL gradient grows relative to BPR as
+   training progresses), but the magnitude of adaptation is small (0.04-0.05 range).
+   A larger initial λ mismatch would produce more dramatic GradNorm behaviour.
+
+5. Amazon Beauty shows MF still improving at epoch 300 — this dataset benefits
+   more from extended training than graph/SSL methods, likely because the
+   interaction graph is dense enough that BPR already captures the key signals.
+
+================================================================================
+  END OF LOG
+================================================================================
